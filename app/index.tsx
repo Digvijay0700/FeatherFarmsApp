@@ -1,562 +1,230 @@
-// ─────────────────────────────────────────────────────────────
-// Clean Modern Dashboard UI
-// app/index.tsx
-// ─────────────────────────────────────────────────────────────
-
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Animated,
-  StatusBar,
-} from 'react-native';
+// app/index.tsx — pulls live data from daily_records collection
 
 import { useRouter } from 'expo-router';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Animated, ScrollView, StatusBar, StyleSheet,
+  Text, TouchableOpacity, View,
+} from 'react-native';
 import { db } from '../firebaseConfig';
 
-// ─────────────────────────────────────────────────────────────
-// Features
-// ─────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────
-// FEATURES
-// ─────────────────────────────────────────────
-
 const FEATURES = [
-  {
-    id: 'daily-record',
-    title: 'Daily Record',
-    desc: 'Feed, mortality and weight entries',
-    icon: '📋',
-    color: '#F5A623',
-    light: '#FFF4E4',
-  },
-  {
-    id: 'poop-detector',
-    title: 'Poop Detector',
-    desc: 'Analyze poultry droppings',
-    icon: '💩',
-    color: '#8D6E63',
-    light: '#F5EFEC',
-  },
-  {
-    id: 'weight-tracker',
-    title: 'Weight Tracker',
-    desc: 'Track weekly bird growth',
-    icon: '⚖️',
-    color: '#66BB6A',
-    light: '#EDF8EE',
-  },
-  {
-    id: 'ocr-scanner',
-    title: 'OCR Scanner',
-    desc: 'Scan handwritten reports',
-    icon: '📷',
-    color: '#42A5F5',
-    light: '#EEF6FF',
-  },
-  {
-    id: 'crowding-detection',
-    title: 'Crowding Detection',
-    desc: 'Detect stress and crowd density',
-    icon: '⚠️',
-    color: '#EF5350',
-    light: '#FFF0F0',
-  },
-  {
-    id: 'feeding-patterns',
-    title: 'Feed Analysis',
-    desc: 'Analyze feed consumption',
-    icon: '🌾',
-    color: '#AB47BC',
-    light: '#F8F0FB',
-  },
+  { id:'daily-record',       title:'Daily Record',       desc:'Feed, mortality and weight entries',  icon:'📋', color:'#F5A623', light:'#FFF4E4' },
+  { id:'counting',           title:'Bird Count',         desc:'AI-powered bird counting',            icon:'🐔', color:'#8D6E63', light:'#F5EFEC' },
+  { id:'weight-tracker',     title:'Weight Tracker',     desc:'Track weekly bird growth',            icon:'⚖️', color:'#66BB6A', light:'#EDF8EE' },
+  { id:'crowding-detection', title:'Crowding Detection', desc:'Detect stress and crowd density',     icon:'⚠️', color:'#EF5350', light:'#FFF0F0' },
+  { id:'feeding-patterns',   title:'Feed Analysis',      desc:'Feeder occupancy monitoring',         icon:'🌾', color:'#AB47BC', light:'#F8F0FB' },
+  { id:'alerts',             title:'Alerts',             desc:'Live farm alerts',                    icon:'🔔', color:'#42A5F5', light:'#EEF6FF' },
 ];
-
-// ─────────────────────────────────────────────────────────────
-// Main Screen
-// ─────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
   const router = useRouter();
-
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(25)).current;
 
-  const [batchInfo, setBatchInfo] = useState({
-    totalBirds: 3800,
-    currentBirds: 3800,
-    day: 1,
-    lastABW: '—',
-    farmName: "Digvijay's Farm",
+  const [info, setInfo] = useState({
+    farmName:     "Digvijay's Farm",
+    totalBirds:   4794,
+    currentBirds: 4794,
+    currentDay:   1,
+    lastABW:      '—',
+    lastFCR:      '—',
+    cumMort:      0,
+    mortPct:      '0.00',
+    cumFeed:      0,
   });
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim,  { toValue:1, duration:500, useNativeDriver:true }),
+      Animated.timing(slideAnim, { toValue:0, duration:500, useNativeDriver:true }),
     ]).start();
 
-    loadBatchSummary();
+    loadLiveData();
   }, []);
 
-  async function loadBatchSummary() {
-    try {
-      const batchRef = doc(
-        db,
-        'farms',
-        'farm_001',
-        'batches',
-        'batch_001'
-      );
+  function loadLiveData() {
+    // Listen to latest daily_record (highest day number)
+    const q = query(
+      collection(db, 'farms', 'farm_001', 'batches', 'batch_001', 'daily_records'),
+      orderBy('day', 'desc'),
+      limit(1),
+    );
 
-      const snap = await getDoc(batchRef);
+    onSnapshot(q, async snap => {
+      // Also get batch info for totalBirds
+      const batchSnap = await getDoc(doc(db, 'farms', 'farm_001', 'batches', 'batch_001'));
+      const batch = batchSnap.exists() ? batchSnap.data() : {};
+      const totalBirds = batch.totalBirds ?? rec.op_bal ?? 1000;
+      const farmName   = batch.name ?? "Digvijay's Farm";
 
-      if (snap.exists()) {
-        const d = snap.data();
-
-        const startDate = d.startDate?.toDate() ?? new Date();
-
-        const dayNum = Math.max(
-          1,
-          Math.ceil(
-            (new Date().getTime() - startDate.getTime()) /
-              (1000 * 60 * 60 * 24)
-          )
-        );
-
-        setBatchInfo({
-          totalBirds: d.totalBirds ?? 3800,
-          currentBirds: d.currentOpeningBalance ?? 3800,
-          day: dayNum,
-          lastABW: d.lastABW ? `${d.lastABW}g` : '—',
-          farmName: "Digvijay's Farm",
-        });
+      if (snap.empty) {
+        // No records yet — show batch defaults
+        setInfo(prev => ({
+          ...prev,
+          farmName,
+          totalBirds,
+          currentBirds: batch.currentOpeningBalance ?? totalBirds,
+          currentDay:   batch.lastDay ?? 1,
+        }));
+        return;
       }
-    } catch (e) {
-      console.log(e);
-    }
+
+      const latest = snap.docs[0].data();
+      const currentBirds = (latest.op_bal ?? totalBirds) - (latest.mortality_daily ?? 0);
+      const cumMort = latest.mortality_cum ?? 0;
+      const mortPct = ((cumMort / totalBirds) * 100).toFixed(2);
+
+      setInfo({
+        farmName,
+        totalBirds,
+        currentBirds,
+        currentDay:   latest.day ?? 1,
+        lastABW:      latest.abw_act ? `${latest.abw_act}g` : '—',
+        lastFCR:      latest.fcr_act ? String(latest.fcr_act) : '—',
+        cumMort,
+        mortPct,
+        cumFeed:      latest.cum_consume ?? 0,
+      });
+    });
   }
 
-  const mortality =
-    batchInfo.totalBirds - batchInfo.currentBirds;
-
-  const mortPct = (
-    (mortality / batchInfo.totalBirds) *
-    100
-  ).toFixed(2);
-
   return (
-    <View style={styles.root}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor="#FFF8E7"
-      />
+    <View style={s.root}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFF8E7" />
 
-      {/* Header */}
-
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
+      {/* HEADER */}
+      <View style={s.header}>
+        <View style={s.headerRow}>
           <View>
-            <Text style={styles.appName}>
-              FeatherFarms
-            </Text>
-
-            <Text style={styles.farmName}>
-              {batchInfo.farmName}
-            </Text>
+            <Text style={s.appName}>FeatherFarms</Text>
+            <Text style={s.farmName}>{info.farmName}</Text>
           </View>
-
-          <View style={styles.dayBox}>
-            <Text style={styles.dayNumber}>
-              {batchInfo.day}
-            </Text>
-
-            <Text style={styles.dayText}>
-              DAY
-            </Text>
+          <View style={s.dayBox}>
+            <Text style={s.dayNumber}>{info.currentDay}</Text>
+            <Text style={s.dayText}>DAY</Text>
           </View>
         </View>
 
-        {/* Stats */}
+        {/* STAT CARDS */}
+        <View style={s.statsRow}>
+          <StatCard label="Total"    value={info.totalBirds.toLocaleString()} />
+          <StatCard label="Live"     value={info.currentBirds.toLocaleString()} />
+          <StatCard label="Mort %"   value={`${info.mortPct}%`} />
+          <StatCard label="ABW"      value={info.lastABW} />
+        </View>
 
-        <View style={styles.statsContainer}>
-          <StatCard
-            label="Total"
-            value={String(batchInfo.totalBirds)}
-          />
-
-          <StatCard
-            label="Live"
-            value={String(batchInfo.currentBirds)}
-          />
-
-          <StatCard
-            label="Mortality"
-            value={`${mortPct}%`}
-          />
-
-          <StatCard
-            label="ABW"
-            value={batchInfo.lastABW}
-          />
+        {/* SECOND ROW */}
+        <View style={s.statsRow}>
+          <StatCard label="Cum Mort"  value={String(info.cumMort)} />
+          <StatCard label="FCR"       value={info.lastFCR} />
+          <StatCard label="Feed bags" value={String(info.cumFeed)} />
+          <StatCard label="Days left" value={String(45 - info.currentDay)} />
         </View>
       </View>
 
-      {/* Body */}
+      {/* BODY */}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+        <Animated.View style={{ opacity:fadeAnim, transform:[{translateY:slideAnim}] }}>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scroll}
-      >
-        <Animated.View
-          style={{
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }],
-          }}
-        >
-          <Text style={styles.sectionTitle}>
-            Farm Tools
-          </Text>
+          <Text style={s.sectionTitle}>Farm Tools</Text>
 
-          {/* Grid */}
-
-          <View style={styles.grid}>
-            {FEATURES.map((item) => (
-              <FeatureCard
+          <View style={s.grid}>
+            {FEATURES.map(item => (
+              <TouchableOpacity
                 key={item.id}
-                item={item}
-                onPress={() =>
-                  router.push(`/${item.id}` as any)
-                }
-              />
+                activeOpacity={0.88}
+                style={[s.card, { backgroundColor:item.light }]}
+                onPress={() => router.push(`/${item.id}` as any)}
+              >
+                <View style={[s.iconBox, { backgroundColor:item.color }]}>
+                  <Text style={s.cardIcon}>{item.icon}</Text>
+                </View>
+                <Text style={s.cardTitle}>{item.title}</Text>
+                <Text style={s.cardDesc}>{item.desc}</Text>
+              </TouchableOpacity>
             ))}
           </View>
 
-          {/* Progress */}
-
-          <View style={styles.progressCard}>
-            <View style={styles.progressHeader}>
-              <Text style={styles.progressTitle}>
-                Batch Progress
-              </Text>
-
-              <Text style={styles.progressDay}>
-                Day {batchInfo.day} / 45
-              </Text>
+          {/* BATCH PROGRESS */}
+          <View style={s.progressCard}>
+            <View style={s.progressHeader}>
+              <Text style={s.progressTitle}>Batch Progress</Text>
+              <Text style={s.progressDay}>Day {info.currentDay} / 45</Text>
             </View>
-
-            <View style={styles.progressBg}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${
-                      (batchInfo.day / 45) * 100
-                    }%`,
-                  },
-                ]}
-              />
+            <View style={s.progressBg}>
+              <View style={[s.progressFill, { width:`${(info.currentDay/45)*100}%` }]} />
             </View>
-
-            <Text style={styles.progressSub}>
-              {45 - batchInfo.day} days remaining
-            </Text>
+            <Text style={s.progressSub}>{45 - info.currentDay} days remaining to slaughter</Text>
           </View>
 
-          <View style={{ height: 40 }} />
+          {/* QUICK STATS */}
+          <View style={s.quickRow}>
+            <View style={[s.quickCard, { backgroundColor:'#EDF8EE' }]}>
+              <Text style={s.quickVal}>{info.lastFCR}</Text>
+              <Text style={s.quickLbl}>Latest FCR</Text>
+            </View>
+            <View style={[s.quickCard, { backgroundColor:'#FFF4E4' }]}>
+              <Text style={s.quickVal}>{info.cumFeed}</Text>
+              <Text style={s.quickLbl}>Feed bags used</Text>
+            </View>
+            <View style={[s.quickCard, { backgroundColor:'#FFF0F0' }]}>
+              <Text style={s.quickVal}>{info.cumMort}</Text>
+              <Text style={s.quickLbl}>Total mortality</Text>
+            </View>
+          </View>
+
+          <View style={{ height:40 }} />
         </Animated.View>
       </ScrollView>
     </View>
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Feature Card
-// ─────────────────────────────────────────────────────────────
-
-function FeatureCard({
-  item,
-  onPress,
-}: {
-  item: (typeof FEATURES)[0];
-  onPress: () => void;
-}) {
+function StatCard({ label, value }: { label:string; value:string }) {
   return (
-    <TouchableOpacity
-      activeOpacity={0.88}
-      style={[
-        styles.card,
-        { backgroundColor: item.light }
-      ]}
-      onPress={onPress}
-    >
-      <View
-        style={[
-          styles.iconContainer,
-          { backgroundColor: item.color }
-        ]}
-      >
-        <Text style={styles.cardIcon}>
-          {item.icon}
-        </Text>
-      </View>
-
-      <Text style={styles.cardTitle}>
-        {item.title}
-      </Text>
-
-      <Text style={styles.cardDesc}>
-        {item.desc}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// Stat Card
-// ─────────────────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <View style={styles.statCard}>
-      <Text style={styles.statValue}>
-        {value}
-      </Text>
-
-      <Text style={styles.statLabel}>
-        {label}
-      </Text>
+    <View style={s.statCard}>
+      <Text style={s.statValue}>{value}</Text>
+      <Text style={s.statLabel}>{label}</Text>
     </View>
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Styles
-// ─────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  root:   { flex:1, backgroundColor:'#FFF8E7' },
+  scroll: { padding:18 },
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#FFF8E7',
-  },
+  header: { backgroundColor:'#F5A623', paddingTop:55, paddingHorizontal:20, paddingBottom:20, borderBottomLeftRadius:30, borderBottomRightRadius:30 },
+  headerRow:  { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:16 },
+  appName:    { fontSize:26, fontWeight:'800', color:'#fff' },
+  farmName:   { fontSize:13, color:'rgba(255,255,255,0.8)', marginTop:4 },
+  dayBox:     { backgroundColor:'#fff', width:72, height:72, borderRadius:20, justifyContent:'center', alignItems:'center' },
+  dayNumber:  { fontSize:26, fontWeight:'800', color:'#F5A623' },
+  dayText:    { fontSize:10, fontWeight:'700', color:'#F5A623', letterSpacing:1 },
+  statsRow:   { flexDirection:'row', justifyContent:'space-between', marginBottom:8 },
+  statCard:   { flex:1, backgroundColor:'rgba(255,255,255,0.22)', paddingVertical:10, borderRadius:14, marginHorizontal:3, alignItems:'center' },
+  statValue:  { fontSize:14, fontWeight:'800', color:'#fff' },
+  statLabel:  { fontSize:10, color:'rgba(255,255,255,0.85)', marginTop:2 },
 
-  // Header
+  sectionTitle: { fontSize:20, fontWeight:'700', color:'#222', marginBottom:16, marginTop:8 },
+  grid:  { flexDirection:'row', flexWrap:'wrap', justifyContent:'space-between' },
+  card:  { width:'48%', borderRadius:22, padding:16, marginBottom:14, minHeight:150, shadowColor:'#000', shadowOpacity:0.05, shadowRadius:8, elevation:2 },
+  iconBox:   { width:48, height:48, borderRadius:16, justifyContent:'center', alignItems:'center', marginBottom:12 },
+  cardIcon:  { fontSize:22 },
+  cardTitle: { fontSize:15, fontWeight:'700', color:'#222', marginBottom:6 },
+  cardDesc:  { fontSize:12, color:'#666', lineHeight:18 },
 
-  header: {
-    backgroundColor: '#F5A623',
-    paddingTop: 55,
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-  },
+  progressCard:   { backgroundColor:'#fff', borderRadius:20, padding:18, marginTop:4, marginBottom:12, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:8, elevation:2 },
+  progressHeader: { flexDirection:'row', justifyContent:'space-between', marginBottom:12 },
+  progressTitle:  { fontSize:15, fontWeight:'700', color:'#222' },
+  progressDay:    { fontSize:13, fontWeight:'600', color:'#F5A623' },
+  progressBg:     { height:8, backgroundColor:'#ECECEC', borderRadius:20, overflow:'hidden' },
+  progressFill:   { height:'100%', backgroundColor:'#F5A623', borderRadius:20 },
+  progressSub:    { marginTop:8, fontSize:12, color:'#777' },
 
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  appName: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#fff',
-  },
-
-  farmName: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
-  },
-
-  dayBox: {
-    backgroundColor: '#fff',
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  dayNumber: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#F5A623',
-  },
-
-  dayText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#F5A623',
-    letterSpacing: 1,
-  },
-
-  // Stats
-
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 22,
-  },
-
-  statCard: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    paddingVertical: 12,
-    borderRadius: 16,
-    marginHorizontal: 4,
-    alignItems: 'center',
-  },
-
-  statValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#fff',
-  },
-
-  statLabel: {
-    fontSize: 11,
-    color: '#fff',
-    marginTop: 4,
-  },
-
-  // Scroll
-
-  scroll: {
-    padding: 18,
-  },
-
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#222',
-    marginBottom: 18,
-  },
-iconContainer: {
-  width: 52,
-  height: 52,
-  borderRadius: 18,
-  justifyContent: 'center',
-  alignItems: 'center',
-  marginBottom: 16,
-},
-
-cardIcon: {
-  fontSize: 24,
-},
-
-  // Grid
-
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-
-card: {
-  width: '48%',
-  borderRadius: 24,
-  padding: 18,
-  marginBottom: 16,
-  minHeight: 165,
-
-  shadowColor: '#000',
-  shadowOffset: {
-    width: 0,
-    height: 3,
-  },
-  shadowOpacity: 0.05,
-  shadowRadius: 8,
-  elevation: 2,
-},
-
-
-
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#222',
-    marginBottom: 10,
-  },
-
-  cardDesc: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: '#666',
-  },
-
-  // Progress
-
-  progressCard: {
-    backgroundColor: '#fff',
-    borderRadius: 22,
-    padding: 20,
-    marginTop: 8,
-
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-  },
-
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-
-  progressTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#222',
-  },
-
-  progressDay: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#F5A623',
-  },
-
-  progressBg: {
-    height: 8,
-    backgroundColor: '#ECECEC',
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#F5A623',
-    borderRadius: 20,
-  },
-
-  progressSub: {
-    marginTop: 10,
-    fontSize: 12,
-    color: '#777',
-  },
+  quickRow:  { flexDirection:'row', gap:10, marginBottom:8 },
+  quickCard: { flex:1, borderRadius:16, padding:14, alignItems:'center' },
+  quickVal:  { fontSize:18, fontWeight:'800', color:'#333' },
+  quickLbl:  { fontSize:10, color:'#888', marginTop:4, textAlign:'center' },
 });
